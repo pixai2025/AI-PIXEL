@@ -42,8 +42,91 @@ app.post('/api/track', (req, res) => {
 
 // Endpoint para servir el tracker JS
 app.get('/client/ai-pixel-tracker.js', (req, res) => {
-  res.sendFile(__dirname + '/../client/ai-pixel-tracker.js');
+  res.setHeader('Content-Type', 'application/javascript');
+  res.send(`
+(function() {
+  'use strict';
+  
+  // AI Bot Detection Dictionary
+  const AI_BOTS = {
+    'GPTBot': 'OpenAI Training',
+    'ChatGPT-User': 'OpenAI Real-time',
+    'OAI-SearchBot': 'OpenAI Search',
+    'ClaudeBot': 'Anthropic Claude',
+    'PerplexityBot': 'Perplexity AI',
+    'Google-Extended': 'Google Gemini',
+    'BingBot': 'Microsoft Bing',
+    'Amazonbot': 'Amazon Alexa'
+  };
+  
+  // Detect if current visitor is an AI bot
+  function detectAIBot() {
+    const userAgent = navigator.userAgent;
+    for (const [botName, description] of Object.entries(AI_BOTS)) {
+      if (userAgent.includes(botName)) {
+        return { detected: true, bot: botName, description };
+      }
+    }
+    return { detected: false };
+  }
+  
+  // Send tracking event
+  function sendEvent(eventData) {
+    const trackingId = document.currentScript?.getAttribute('data-tracking-id') || 'unknown';
+    
+    const payload = {
+      trackingId,
+      timestamp: new Date().toISOString(),
+      url: window.location.href,
+      userAgent: navigator.userAgent,
+      ...eventData
+    };
+    
+    // Use sendBeacon if available, fallback to fetch
+    if (navigator.sendBeacon) {
+      navigator.sendBeacon('${process.env.RAILWAY_STATIC_URL || ''}/api/track', JSON.stringify(payload));
+    } else {
+      fetch('/api/track', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      }).catch(e => console.log('AI Pixel tracking failed:', e));
+    }
+  }
+  
+  // Initialize tracking
+  function init() {
+    const botDetection = detectAIBot();
+    
+    // Send page view event
+    sendEvent({
+      event: 'page_view',
+      botDetected: botDetection.detected,
+      botInfo: botDetection
+    });
+    
+    // If AI bot detected, send special event
+    if (botDetection.detected) {
+      sendEvent({
+        event: 'ai_bot_detected',
+        botName: botDetection.bot,
+        botDescription: botDetection.description
+      });
+      console.log('🤖 AI Bot detected:', botDetection);
+    }
+  }
+  
+  // Auto-initialize
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+  
+})();
+  `);
 });
+
 
 // Error handling
 app.use((err, req, res, next) => {
