@@ -1,89 +1,66 @@
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
-const morgan = require('morgan');
-const compression = require('compression');
 const rateLimit = require('express-rate-limit');
 require('dotenv').config();
 
-const { connectDB } = require('./database');
-const { logger } = require('./logger');
-const { authenticateToken } = require('./middleware/auth');
-
-// Importar rutas
-const trackingRoutes = require('./routes/tracking');
-const analyticsRoutes = require('./routes/analytics');
-const authRoutes = require('./routes/auth');
-
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3001;
 
-// Middlewares de seguridad
+// Middleware básico
 app.use(helmet());
-app.use(compression());
+app.use(cors({
+  origin: process.env.CORS_ORIGIN || '*'
+}));
+app.use(express.json());
 
 // Rate limiting
 const limiter = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutos
-    max: 1000, // máximo 1000 requests por ventana de tiempo
-    message: 'Too many requests from this IP'
+  windowMs: 15 * 60 * 1000, // 15 minutos
+  max: 100 // máximo 100 requests por ventana
 });
-app.use('/api/', limiter);
+app.use(limiter);
 
-// CORS configuración
-app.use(cors({
-    origin: process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : '*',
-    credentials: true
-}));
-
-// Logging
-app.use(morgan('combined', { stream: { write: message => logger.info(message) } }));
-
-// Parseo de JSON
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true }));
-
-// Rutas
-app.use('/api/track', trackingRoutes);
-app.use('/api/analytics', authenticateToken, analyticsRoutes);
-app.use('/api/auth', authRoutes);
-
-// Ruta de salud
-app.get('/health', (req, res) => {
-    res.json({ 
-        status: 'OK', 
-        timestamp: new Date().toISOString(),
-        version: '1.0.0'
-    });
+// Ruta básica de salud
+app.get('/', (req, res) => {
+  res.json({ 
+    message: 'AI Pixel Tracker API is running!',
+    version: '1.0.0',
+    timestamp: new Date().toISOString()
+  });
 });
 
-// Manejo de errores
+// Endpoint básico de tracking (temporal)
+app.post('/api/track', (req, res) => {
+  console.log('Tracking event received:', req.body);
+  res.json({ 
+    success: true, 
+    message: 'Event tracked successfully',
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Endpoint para servir el tracker JS
+app.get('/client/ai-pixel-tracker.js', (req, res) => {
+  res.sendFile(__dirname + '/../client/ai-pixel-tracker.js');
+});
+
+// Error handling
 app.use((err, req, res, next) => {
-    logger.error(err.stack);
-    res.status(500).json({ 
-        error: 'Something went wrong!',
-        message: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error'
-    });
+  console.error(err.stack);
+  res.status(500).json({ error: 'Something went wrong!' });
 });
 
 // 404 handler
 app.use('*', (req, res) => {
-    res.status(404).json({ error: 'Route not found' });
+  res.status(404).json({ error: 'Route not found' });
 });
 
 // Iniciar servidor
-async function startServer() {
-    try {
-        await connectDB();
-        app.listen(PORT, () => {
-            logger.info(`AI Pixel Tracker Server running on port ${PORT}`);
-        });
-    } catch (error) {
-        logger.error('Failed to start server:', error);
-        process.exit(1);
-    }
-}
-
-startServer();
+app.listen(PORT, () => {
+  console.log(`🚀 AI Pixel Tracker API running on port ${PORT}`);
+  console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
+});
 
 module.exports = app;
+
