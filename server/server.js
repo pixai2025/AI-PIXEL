@@ -39,7 +39,71 @@ app.post('/api/track', (req, res) => {
     timestamp: new Date().toISOString()
   });
 });
-
+// Dashboard temporal
+app.get('/dashboard', (req, res) => {
+  res.send(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>AI Pixel Tracker - Dashboard</title>
+        <style>
+            body { font-family: Arial, sans-serif; margin: 40px; background: #f5f5f5; }
+            .card { background: white; border: 1px solid #ddd; padding: 20px; margin: 20px 0; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+            h1 { color: #333; }
+            code { background: #f0f0f0; padding: 10px; display: block; border-radius: 4px; margin: 10px 0; }
+            button { background: #007cba; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; }
+            button:hover { background: #005a8c; }
+        </style>
+    </head>
+    <body>
+        <h1>🤖 AI Pixel Tracker Dashboard</h1>
+        <div class="card">
+            <h2>✅ API Status</h2>
+            <p>API is running successfully</p>
+            <p>🕐 Server time: ${new Date().toISOString()}</p>
+            <p>🌐 Base URL: ${req.protocol}://${req.get('host')}</p>
+        </div>
+        <div class="card">
+            <h2>📦 Installation Code</h2>
+            <p>Add this script to any website you want to track:</p>
+            <code>&lt;script src="${req.protocol}://${req.get('host')}/client/ai-pixel-tracker.js" data-tracking-id="your-unique-id"&gt;&lt;/script&gt;</code>
+        </div>
+        <div class="card">
+            <h2>🧪 Quick Test</h2>
+            <button onclick="testTracking()">Test AI Detection</button>
+            <div id="result"></div>
+        </div>
+        <div class="card">
+            <h2>🔗 Useful Links</h2>
+            <p><a href="/client/ai-pixel-tracker.js" target="_blank">📄 View Tracker Script</a></p>
+            <p><a href="/api/track" target="_blank">📡 Tracking Endpoint</a></p>
+        </div>
+        <script>
+            function testTracking() {
+                fetch('/api/track', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        event: 'dashboard_test', 
+                        source: 'dashboard',
+                        timestamp: new Date().toISOString()
+                    })
+                })
+                .then(res => res.json())
+                .then(data => {
+                    document.getElementById('result').innerHTML = 
+                        '<p style="color: green; font-weight: bold;">✅ Tracking test successful!</p><pre>' + JSON.stringify(data, null, 2) + '</pre>';
+                })
+                .catch(err => {
+                    document.getElementById('result').innerHTML = 
+                        '<p style="color: red;">❌ Test failed: ' + err.message + '</p>';
+                });
+            }
+        </script>
+    </body>
+    </html>
+  `);
+});
 // Endpoint para servir el tracker JS
 app.get('/client/ai-pixel-tracker.js', (req, res) => {
   res.setHeader('Content-Type', 'application/javascript');
