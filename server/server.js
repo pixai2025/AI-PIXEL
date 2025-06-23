@@ -539,6 +539,222 @@ app.get('/login', (req, res) => {
 app.get('/dashboard', (req, res) => {
   res.redirect('/register');
 });
+// PANEL DE ADMINISTRADOR
+app.get('/admin', (req, res) => {
+  const totalUsers = users.length;
+  const totalEvents = trackingEvents.length;
+  const totalBotDetections = trackingEvents.filter(e => e.botDetected).length;
+  const activeUsersToday = [...new Set(trackingEvents
+    .filter(e => new Date(e.timestamp).toDateString() === new Date().toDateString())
+    .map(e => e.trackingId))].length;
+  
+  // Estadísticas por bot
+  const botStats = trackingEvents
+    .filter(e => e.botDetected && e.botInfo?.bot)
+    .reduce((acc, event) => {
+      const bot = event.botInfo.bot;
+      acc[bot] = (acc[bot] || 0) + 1;
+      return acc;
+    }, {});
+  
+  // Top sitios web más activos
+  const siteStats = users
+    .map(user => ({
+      ...user,
+      events: trackingEvents.filter(e => e.trackingId === user.trackingId).length,
+      botDetections: trackingEvents.filter(e => e.trackingId === user.trackingId && e.botDetected).length
+    }))
+    .sort((a, b) => b.events - a.events);
+
+  res.send(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>AI Pixel Tracker - Admin Panel</title>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f1f5f9; }
+            .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+            .header { background: linear-gradient(135deg, #1e40af, #3b82f6); color: white; padding: 30px; border-radius: 12px; margin-bottom: 30px; }
+            .header h1 { font-size: 32px; margin-bottom: 10px; }
+            .header p { opacity: 0.9; font-size: 16px; }
+            .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-bottom: 30px; }
+            .card { background: white; padding: 25px; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+            .metric { font-size: 36px; font-weight: bold; margin-bottom: 8px; }
+            .metric.users { color: #059669; }
+            .metric.events { color: #3b82f6; }
+            .metric.bots { color: #dc2626; }
+            .metric.active { color: #f59e0b; }
+            .metric-label { color: #64748b; font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px; }
+            .table { width: 100%; border-collapse: collapse; }
+            .table th, .table td { padding: 12px; text-align: left; border-bottom: 1px solid #e2e8f0; }
+            .table th { background: #f8fafc; font-weight: 600; color: #374151; }
+            .table tr:hover { background: #f9fafb; }
+            .badge { padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: 500; }
+            .badge-active { background: #dcfce7; color: #166534; }
+            .badge-inactive { background: #fef2f2; color: #dc2626; }
+            .btn { background: #3b82f6; color: white; padding: 8px 16px; border: none; border-radius: 6px; cursor: pointer; text-decoration: none; font-size: 14px; }
+            .btn:hover { background: #2563eb; }
+            .btn-danger { background: #dc2626; }
+            .btn-danger:hover { background: #b91c1c; }
+            .refresh-btn { position: fixed; bottom: 20px; right: 20px; background: #059669; padding: 15px; border-radius: 50%; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+            .section { background: white; border-radius: 12px; padding: 25px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+            .section h2 { color: #1f2937; margin-bottom: 20px; font-size: 20px; }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <h1>🔧 AI Pixel Tracker - Admin Panel</h1>
+                <p>Master dashboard with platform metrics and user management</p>
+                <p>Last updated: ${new Date().toLocaleString()}</p>
+            </div>
+            
+            <div class="grid">
+                <div class="card">
+                    <div class="metric users">${totalUsers}</div>
+                    <div class="metric-label">Total Users</div>
+                </div>
+                <div class="card">
+                    <div class="metric events">${totalEvents}</div>
+                    <div class="metric-label">Total Events</div>
+                </div>
+                <div class="card">
+                    <div class="metric bots">${totalBotDetections}</div>
+                    <div class="metric-label">AI Bot Detections</div>
+                </div>
+                <div class="card">
+                    <div class="metric active">${activeUsersToday}</div>
+                    <div class="metric-label">Active Today</div>
+                </div>
+            </div>
+            
+            <div class="section">
+                <h2>👥 Registered Users</h2>
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Email</th>
+                            <th>Website</th>
+                            <th>Tracking ID</th>
+                            <th>Events</th>
+                            <th>Bot Detections</th>
+                            <th>Registered</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${siteStats.map(user => `
+                            <tr>
+                                <td><strong>${user.name}</strong></td>
+                                <td>${user.email}</td>
+                                <td>${user.website || '<em>Not specified</em>'}</td>
+                                <td><code>${user.trackingId}</code></td>
+                                <td>${user.events}</td>
+                                <td>${user.botDetections}</td>
+                                <td>${new Date(user.createdAt).toLocaleDateString()}</td>
+                                <td><span class="badge badge-active">Active</span></td>
+                                <td>
+                                    <a href="/dashboard/${user.trackingId}" class="btn" target="_blank">View Dashboard</a>
+                                    <button onclick="editUser('${user.id}')" class="btn">Edit</button>
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+            
+            <div class="section">
+                <h2>🤖 AI Bot Statistics</h2>
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>Bot Name</th>
+                            <th>Total Detections</th>
+                            <th>Percentage</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${Object.entries(botStats)
+                          .sort((a, b) => b[1] - a[1])
+                          .map(([bot, count]) => `
+                            <tr>
+                                <td><strong>${bot}</strong></td>
+                                <td>${count}</td>
+                                <td>${((count / totalBotDetections) * 100).toFixed(1)}%</td>
+                            </tr>
+                          `).join('')}
+                    </tbody>
+                </table>
+            </div>
+            
+            <div class="section">
+                <h2>📊 Recent Activity</h2>
+                <div style="max-height: 400px; overflow-y: auto;">
+                    ${trackingEvents.slice(-50).reverse().map(event => `
+                        <div style="padding: 10px; border-bottom: 1px solid #e5e7eb; ${event.botDetected ? 'background: #fef3c7;' : ''}">
+                            <strong>${event.event}</strong> ${event.botDetected ? '🤖' : '👤'}
+                            <span style="color: #6b7280;">- ${event.trackingId}</span>
+                            <br><small style="color: #9ca3af;">${event.url} • ${new Date(event.timestamp).toLocaleString()}</small>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        </div>
+        
+        <button class="refresh-btn" onclick="window.location.reload()">🔄</button>
+        
+        <script>
+            function editUser(userId) {
+                const newEmail = prompt('Enter new email:');
+                if (newEmail) {
+                    alert('User edit functionality coming soon!');
+                    // Aquí agregarías la funcionalidad de edición
+                }
+            }
+            
+            // Auto-refresh every 60 seconds
+            setTimeout(() => {
+                window.location.reload();
+            }, 60000);
+        </script>
+    </body>
+    </html>
+  `);
+});
+
+// API para editar usuarios (admin)
+app.post('/admin/edit-user/:id', (req, res) => {
+  const userId = parseInt(req.params.id);
+  const { email, name, website } = req.body;
+  
+  const userIndex = users.findIndex(u => u.id === userId);
+  if (userIndex === -1) {
+    return res.status(404).json({ error: 'User not found' });
+  }
+  
+  // Actualizar usuario
+  if (email) users[userIndex].email = email;
+  if (name) users[userIndex].name = name;
+  if (website !== undefined) users[userIndex].website = website;
+  
+  res.json({ success: true, message: 'User updated successfully' });
+});
+
+// API para obtener estadísticas (admin)
+app.get('/admin/stats', (req, res) => {
+  res.json({
+    totalUsers: users.length,
+    totalEvents: trackingEvents.length,
+    totalBotDetections: trackingEvents.filter(e => e.botDetected).length,
+    users: users,
+    recentEvents: trackingEvents.slice(-100)
+  });
+});
 
 // Error handling
 app.use((err, req, res, next) => {
