@@ -58,16 +58,16 @@ app.post('/api/register', (req, res) => {
   }
   
   // Crear nuevo usuario
-  const trackingId = generateTrackingId(email);
-  const newUser = {
-    id: users.length + 1,
-    email,
-    name,
-    website: website || '',
-    trackingId,
-    createdAt: new Date().toISOString(),
-    isActive: true
-  };
+const newUser = {
+  id: users.length + 1,
+  email,
+  name,
+  website: website ? (website.startsWith('http') ? website : `https://${website}`) : '',
+  trackingId,
+  createdAt: new Date().toISOString(),
+  isActive: true
+};
+
   
   users.push(newUser);
   
@@ -407,8 +407,9 @@ app.get('/register', (req, res) => {
                     <input type="email" id="email" name="email" required>
                 </div>
                 <div class="form-group">
-                    <label for="website">Website (optional)</label>
-                    <input type="url" id="website" name="website" placeholder="https://your-website.com">
+    <label for="website">Website (optional)</label>
+    <input type="text" id="website" name="website" placeholder="your-website.com">
+    <small style="color: #718096; font-size: 12px;">Don't include http:// or https://</small>
                 </div>
                 <button type="submit" class="btn">Get My Tracking Code</button>
             </form>
