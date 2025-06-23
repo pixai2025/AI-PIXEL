@@ -3,6 +3,90 @@ const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 require('dotenv').config();
+const nodemailer = require('nodemailer');
+const crypto = require('crypto');
+
+// Configuración de email
+const emailTransporter = nodemailer.createTransporter({
+  service: 'gmail',
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS
+  }
+});
+
+// Función para enviar emails
+async function sendConfirmationEmail(email, name, trackingId, confirmationToken) {
+  const confirmationUrl = `${process.env.RAILWAY_STATIC_URL || 'http://localhost:3001'}/confirm/${confirmationToken}`;
+  
+  const htmlContent = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <style>
+            body { font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; }
+            .header { background: linear-gradient(135deg, #1e40af, #3b82f6); color: white; padding: 30px; text-align: center; border-radius: 8px; }
+            .content { padding: 30px; background: #f9fafb; border-radius: 8px; margin: 20px 0; }
+            .button { background: #3b82f6; color: white; padding: 15px 30px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: bold; }
+            .code { background: #1f2937; color: #10b981; padding: 15px; border-radius: 6px; font-family: monospace; font-size: 16px; text-align: center; margin: 20px 0; }
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <h1>🤖 Welcome to AI Pixel Tracker!</h1>
+        </div>
+        
+        <div class="content">
+            <h2>Hi ${name}!</h2>
+            <p>Thanks for signing up for AI Pixel Tracker - the first tool to detect when AI bots visit your website.</p>
+            
+            <p><strong>Please confirm your email address by clicking the button below:</strong></p>
+            <p style="text-align: center;">
+                <a href="${confirmationUrl}" class="button">Confirm Email & Access Dashboard</a>
+            </p>
+            
+            <hr style="margin: 30px 0;">
+            
+            <h3>Your Tracking Details:</h3>
+            <p><strong>Tracking ID:</strong></p>
+            <div class="code">${trackingId}</div>
+            
+            <p><strong>Installation Code:</strong></p>
+            <div class="code">&lt;script src="${process.env.RAILWAY_STATIC_URL || 'http://localhost:3001'}/client/ai-pixel-tracker.js" data-tracking-id="${trackingId}"&gt;&lt;/script&gt;</div>
+            
+            <h3>What's Next?</h3>
+            <ol>
+                <li>Confirm your email (click button above)</li>
+                <li>Add the tracking code to your website</li>
+                <li>Monitor AI bot visits in your dashboard</li>
+            </ol>
+            
+            <p>If the button doesn't work, copy this link: <br>
+            <a href="${confirmationUrl}">${confirmationUrl}</a></p>
+        </div>
+        
+        <div style="text-align: center; color: #6b7280; font-size: 14px; margin-top: 20px;">
+            <p>AI Pixel Tracker - Detecting AI bot visits worldwide</p>
+        </div>
+    </body>
+    </html>
+  `;
+
+  const mailOptions = {
+    from: process.env.EMAIL_FROM || 'AI Pixel Tracker <noreply@ai-pixel.com>',
+    to: email,
+    subject: '🤖 Confirm your AI Pixel Tracker account',
+    html: htmlContent
+  };
+
+  try {
+    await emailTransporter.sendMail(mailOptions);
+    return { success: true };
+  } catch (error) {
+    console.error('Email sending failed:', error);
+    return { success: false, error: error.message };
+  }
+}
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -43,8 +127,8 @@ app.get('/', (req, res) => {
   });
 });
 
-// REGISTRO DE USUARIOS
-app.post('/api/register', (req, res) => {
+// REGISTRO DE USUARIOS (modificado)
+app.post('/api/register', async (req, res) => {
   const { email, name, website } = req.body;
   
   if (!email || !name) {
@@ -57,42 +141,126 @@ app.post('/api/register', (req, res) => {
     return res.status(400).json({ error: 'Email already registered' });
   }
   
-  // Crear nuevo usuario
-const newUser = {
-  id: users.length + 1,
-  email,
-  name,
-  website: website ? (website.startsWith('http') ? website : `https://${website}`) : '',
-  trackingId,
-  createdAt: new Date().toISOString(),
-  isActive: true
-};
-
+  // Crear nuevo usuario (pendiente de confirmación)
+  const trackingId = generateTrackingId(email);
+  const confirmationToken = crypto.randomBytes(32).toString('hex');
+  
+  const newUser = {
+    id: users.length + 1,
+    email,
+    name,
+    website: website ? (website.startsWith('http') ? website : `https://${website}`) : '',
+    trackingId,
+    confirmationToken,
+    isConfirmed: false,
+    isActive: true,
+    createdAt: new Date().toISOString()
+  };
   
   users.push(newUser);
   
-  res.json({
-    success: true,
-    message: 'User registered successfully',
-    trackingId,
-    dashboardUrl: `${req.protocol}://${req.get('host')}/dashboard/${trackingId}`
-  });
+  // Enviar email de confirmación
+  const emailResult = await sendConfirmationEmail(email, name, trackingId, confirmationToken);
+  
+  if (emailResult.success) {
+    res.json({
+      success: true,
+      message: 'Registration successful! Please check your email to confirm your account.',
+      trackingId,
+      needsConfirmation: true
+    });
+  } else {
+    res.status(500).json({
+      error: 'Registration successful but email sending failed. Please contact support.',
+      trackingId
+    });
+  }
 });
 
-// LOGIN DE USUARIOS (simple)
+// LOGIN DE USUARIOS (mejorado)
 app.post('/api/login', (req, res) => {
   const { email } = req.body;
   
   const user = users.find(u => u.email === email);
   if (!user) {
-    return res.status(404).json({ error: 'User not found' });
+    return res.status(404).json({ error: 'Email not found. Please register first.' });
+  }
+  
+  if (!user.isConfirmed) {
+    return res.status(400).json({ 
+      error: 'Please confirm your email first. Check your inbox for the confirmation link.',
+      needsConfirmation: true 
+    });
   }
   
   res.json({
     success: true,
     trackingId: user.trackingId,
-    dashboardUrl: `${req.protocol}://${req.get('host')}/dashboard/${user.trackingId}`
+    dashboardUrl: `${req.protocol}://${req.get('host')}/dashboard/${user.trackingId}`,
+    message: 'Login successful!'
   });
+});
+// CONFIRMACIÓN DE EMAIL
+app.get('/confirm/:token', (req, res) => {
+  const confirmationToken = req.params.token;
+  
+  // Buscar usuario con este token
+  const user = users.find(u => u.confirmationToken === confirmationToken);
+  
+  if (!user) {
+    return res.send(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+          <title>Invalid Confirmation</title>
+          <style>
+              body { font-family: Arial, sans-serif; max-width: 500px; margin: 100px auto; padding: 40px; text-align: center; }
+              .error { color: #dc2626; }
+          </style>
+      </head>
+      <body>
+          <h1 class="error">❌ Invalid Confirmation Link</h1>
+          <p>This confirmation link is invalid or has already been used.</p>
+          <a href="/register">Register Again</a>
+      </body>
+      </html>
+    `);
+  }
+  
+  if (user.isConfirmed) {
+    return res.redirect(`/dashboard/${user.trackingId}?welcome=true`);
+  }
+  
+  // Confirmar usuario
+  user.isConfirmed = true;
+  user.confirmedAt = new Date().toISOString();
+  delete user.confirmationToken; // Limpiar token
+  
+  res.send(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Email Confirmed!</title>
+        <style>
+            body { font-family: Arial, sans-serif; max-width: 600px; margin: 100px auto; padding: 40px; text-align: center; }
+            .success { color: #059669; }
+            .button { background: #3b82f6; color: white; padding: 15px 30px; text-decoration: none; border-radius: 6px; display: inline-block; margin: 20px; }
+            .code { background: #1f2937; color: #10b981; padding: 15px; border-radius: 6px; font-family: monospace; margin: 20px 0; }
+        </style>
+    </head>
+    <body>
+        <h1 class="success">✅ Email Confirmed!</h1>
+        <p>Welcome to AI Pixel Tracker, <strong>${user.name}</strong>!</p>
+        
+        <a href="/dashboard/${user.trackingId}" class="button">🚀 Access Your Dashboard</a>
+        
+        <h3>Your Tracking Code:</h3>
+        <div class="code">&lt;script src="${req.protocol}://${req.get('host')}/client/ai-pixel-tracker.js" data-tracking-id="${user.trackingId}"&gt;&lt;/script&gt;</div>
+        
+        <p>Add this code to your website to start tracking AI bot visits!</p>
+    </body>
+    </html>
+  `);
 });
 
 // Endpoint de tracking (mejorado)
@@ -239,7 +407,28 @@ app.get('/dashboard/:trackingId', (req, res) => {
       <p>Please check your tracking ID or <a href="/register">register here</a></p>
     `);
   }
-  
+  // Verificar que el usuario está confirmado
+  if (!user.isConfirmed) {
+    return res.send(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+          <title>Email Confirmation Required</title>
+          <style>
+              body { font-family: Arial, sans-serif; max-width: 500px; margin: 100px auto; padding: 40px; text-align: center; }
+              .warning { color: #f59e0b; }
+          </style>
+      </head>
+      <body>
+          <h1 class="warning">⚠️ Email Confirmation Required</h1>
+          <p>Hi <strong>${user.name}</strong>!</p>
+          <p>Please check your email (<strong>${user.email}</strong>) and click the confirmation link to access your dashboard.</p>
+          <p><a href="/login">Back to Login</a></p>
+      </body>
+      </html>
+    `);
+  }
+// LOGIN DE USUARIOS (mejorado)  
   // Obtener eventos específicos de este tracking ID
   const userEvents = trackingEvents.filter(e => e.trackingId === trackingId);
   const totalEvents = userEvents.length;
