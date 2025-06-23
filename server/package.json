@@ -26,7 +26,6 @@
   ],
   "author": "AI Pixel Tracker",
   "license": "MIT",
-  {
   "dependencies": {
     "express": "^4.18.2",
     "mongoose": "^8.0.3",
