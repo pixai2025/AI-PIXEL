@@ -59,60 +59,60 @@ async function sendConfirmationEmail(email, name, trackingId, confirmationToken)
   const confirmationUrl = `${process.env.RAILWAY_STATIC_URL || 'http://localhost:3001'}/confirm/${confirmationToken}`;
   
   const htmlContent = `
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <style>
+    
+    
+    
+        
             body { font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; }
             .header { background: linear-gradient(135deg, #1e40af, #3b82f6); color: white; padding: 30px; text-align: center; border-radius: 8px; }
             .content { padding: 30px; background: #f9fafb; border-radius: 8px; margin: 20px 0; }
             .button { background: #3b82f6; color: white; padding: 15px 30px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: bold; }
             .code { background: #1f2937; color: #10b981; padding: 15px; border-radius: 6px; font-family: monospace; font-size: 16px; text-align: center; margin: 20px 0; }
-        </style>
-    </head>
-    <body>
-        <div class="header">
-            <h1>🤖 Welcome to AI Pixel Tracker!</h1>
-        </div>
         
-        <div class="content">
-            <h2>Hi ${name}!</h2>
-            <p>Thanks for signing up for AI Pixel Tracker - the first tool to detect when AI bots visit your website.</p>
-            
-            <p><strong>Please confirm your email address by clicking the button below:</strong></p>
-            <p style="text-align: center;">
-                <a href="${confirmationUrl}" class="button">Confirm Email & Access Dashboard</a>
-            </p>
-            
-            <hr style="margin: 30px 0;">
-            
-            <h3>Your Tracking Details:</h3>
-            <p><strong>Tracking ID:</strong></p>
-            <div class="code">${trackingId}</div>
-            
-            <p><strong>Installation Code:</strong></p>
-            <div class="code">&lt;script src="${process.env.RAILWAY_STATIC_URL || 'http://localhost:3001'}/client/ai-pixel-tracker.js" data-tracking-id="${trackingId}"&gt;&lt;/script&gt;</div>
-            
-            <h3>What's Next?</h3>
-            <ol>
-                <li>Confirm your email (click button above)</li>
-                <li>Add the tracking code to your website</li>
-                <li>Monitor AI bot visits in your dashboard</li>
-            </ol>
-            
-            <p>If the button doesn't work, copy this link: <br>
-            <a href="${confirmationUrl}">${confirmationUrl}</a></p>
-        </div>
+    
+    
         
-        <div style="text-align: center; color: #6b7280; font-size: 14px; margin-top: 20px;">
-            <p>AI Pixel Tracker - Detecting AI bot visits worldwide</p>
-        </div>
-    </body>
-    </html>
+            🤖 Welcome to AI Pixel Tracker!
+        
+        
+        
+            Hi ${name}!
+            Thanks for signing up for AI Pixel Tracker - the first tool to detect when AI bots visit your website.
+            
+            Please confirm your email address by clicking the button below:
+            
+                Confirm Email & Access Dashboard
+            
+            
+            
+            
+            Your Tracking Details:
+            Tracking ID:
+            ${trackingId}
+            
+            Installation Code:
+            <script src="${process.env.RAILWAY_STATIC_URL || 'http://localhost:3001'}/client/ai-pixel-tracker.js" data-tracking-id="${trackingId}"></script>
+            
+            What's Next?
+            
+                Confirm your email (click button above)
+                Add the tracking code to your website
+                Monitor AI bot visits in your dashboard
+            
+            
+            If the button doesn't work, copy this link: 
+            ${confirmationUrl}
+        
+        
+        
+            AI Pixel Tracker - Detecting AI bot visits worldwide
+        
+    
+    
   `;
 
   const mailOptions = {
-    from: process.env.EMAIL_FROM || 'AI Pixel Tracker <noreply@ai-pixel.com>',
+    from: process.env.EMAIL_FROM || 'AI Pixel Tracker ',
     to: email,
     subject: '🤖 Confirm your AI Pixel Tracker account',
     html: htmlContent
@@ -210,21 +210,21 @@ app.get('/confirm/:token', (req, res) => {
   
   if (!user) {
     return res.send(`
-      <!DOCTYPE html>
-      <html>
-      <head>
-          <title>Invalid Confirmation</title>
-          <style>
+      
+      
+      
+          Invalid Confirmation
+          
               body { font-family: Arial, sans-serif; max-width: 500px; margin: 100px auto; padding: 40px; text-align: center; }
               .error { color: #dc2626; }
-          </style>
-      </head>
-      <body>
-          <h1 class="error">❌ Invalid Confirmation Link</h1>
-          <p>This confirmation link is invalid or has already been used.</p>
-          <a href="/register">Register Again</a>
-      </body>
-      </html>
+          
+      
+      
+          ❌ Invalid Confirmation Link
+          This confirmation link is invalid or has already been used.
+          Register Again
+      
+      
     `);
   }
   
@@ -238,29 +238,29 @@ app.get('/confirm/:token', (req, res) => {
   delete user.confirmationToken;
   
   res.send(`
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>Email Confirmed!</title>
-        <style>
+    
+    
+    
+        Email Confirmed!
+        
             body { font-family: Arial, sans-serif; max-width: 600px; margin: 100px auto; padding: 40px; text-align: center; }
             .success { color: #059669; }
             .button { background: #3b82f6; color: white; padding: 15px 30px; text-decoration: none; border-radius: 6px; display: inline-block; margin: 20px; }
             .code { background: #1f2937; color: #10b981; padding: 15px; border-radius: 6px; font-family: monospace; margin: 20px 0; }
-        </style>
-    </head>
-    <body>
-        <h1 class="success">✅ Email Confirmed!</h1>
-        <p>Welcome to AI Pixel Tracker, <strong>${user.name}</strong>!</p>
         
-        <a href="/dashboard/${user.trackingId}" class="button">🚀 Access Your Dashboard</a>
+    
+    
+        ✅ Email Confirmed!
+        Welcome to AI Pixel Tracker, ${user.name}!
         
-        <h3>Your Tracking Code:</h3>
-        <div class="code">&lt;script src="${req.protocol}://${req.get('host')}/client/ai-pixel-tracker.js" data-tracking-id="${user.trackingId}"&gt;&lt;/script&gt;</div>
+        🚀 Access Your Dashboard
         
-        <p>Add this code to your website to start tracking AI bot visits!</p>
-    </body>
-    </html>
+        Your Tracking Code:
+        <script src="${req.protocol}://${req.get('host')}/client/ai-pixel-tracker.js" data-tracking-id="${user.trackingId}"></script>
+        
+        Add this code to your website to start tracking AI bot visits!
+    
+    
   `);
 });
 
@@ -401,8 +401,8 @@ app.get('/dashboard/:trackingId', (req, res) => {
   const user = users.find(u => u.trackingId === trackingId);
   if (!user) {
     return res.status(404).send(`
-      <h1>❌ Tracking ID not found</h1>
-      <p>Please check your tracking ID or <a href="/register">register here</a></p>
+      ❌ Tracking ID not found
+      Please check your tracking ID or register here
     `);
   }
   
@@ -425,13 +425,13 @@ app.get('/dashboard/:trackingId', (req, res) => {
     : 'None detected';
   
   res.send(`
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>AI Pixel Dashboard - ${user.name}</title>
-        <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1">
-        <style>
+    
+    
+    
+        AI Pixel Dashboard - ${user.name}
+        
+        
+        
             * { margin: 0; padding: 0; box-sizing: border-box; }
             body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f8fafc; }
             .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
@@ -444,60 +444,60 @@ app.get('/dashboard/:trackingId', (req, res) => {
             .metric-label { color: #718096; font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px; }
             .install-code { background: #2d3748; color: #e2e8f0; padding: 20px; border-radius: 8px; font-family: 'Monaco', 'Courier New', monospace; font-size: 14px; overflow-x: auto; }
             .status-badge { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: bold; background: #c6f6d5; color: #22543d; }
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <div class="header">
-                <h1>🤖 AI Pixel Dashboard</h1>
-                <p>Welcome back, <strong>${user.name}</strong> • Tracking ID: <code>${trackingId}</code> • <span class="status-badge">Active</span></p>
-                <p>Website: ${user.website || 'Not specified'} • Member since: ${new Date(user.createdAt).toLocaleDateString()}</p>
-            </div>
-            
-            <div class="grid">
-                <div class="card">
-                    <div class="metric">${totalEvents}</div>
-                    <div class="metric-label">Total Page Views</div>
-                </div>
-                <div class="card">
-                    <div class="metric">${totalBotDetections}</div>
-                    <div class="metric-label">AI Bot Visits</div>
-                </div>
-                <div class="card">
-                    <div class="metric">${uniqueUrls}</div>
-                    <div class="metric-label">Unique Pages</div>
-                </div>
-                <div class="card">
-                    <div class="metric">${topBot}</div>
-                    <div class="metric-label">Most Active Bot</div>
-                </div>
-            </div>
-            
-            <div class="card">
-                <h3 style="margin-bottom: 20px; color: #2d3748;">📦 Installation Code</h3>
-                <p style="margin-bottom: 15px; color: #718096;">Copy this code and paste it in your website's HTML:</p>
-                <div class="install-code">&lt;script src="${req.protocol}://${req.get('host')}/client/ai-pixel-tracker.js" data-tracking-id="${trackingId}"&gt;&lt;/script&gt;</div>
-            </div>
-        </div>
         
-        <script>
+    
+    
+        
+            
+                🤖 AI Pixel Dashboard
+                Welcome back, ${user.name} • Tracking ID: ${trackingId} • Active
+                Website: ${user.website || 'Not specified'} • Member since: ${new Date(user.createdAt).toLocaleDateString()}
+            
+            
+            
+                
+                    ${totalEvents}
+                    Total Page Views
+                
+                
+                    ${totalBotDetections}
+                    AI Bot Visits
+                
+                
+                    ${uniqueUrls}
+                    Unique Pages
+                
+                
+                    ${topBot}
+                    Most Active Bot
+                
+            
+            
+            
+                📦 Installation Code
+                Copy this code and paste it in your website's HTML:
+                <script src="${req.protocol}://${req.get('host')}/client/ai-pixel-tracker.js" data-tracking-id="${trackingId}"></script>
+            
+        
+        
+        
             setTimeout(() => window.location.reload(), 30000);
-        </script>
-    </body>
-    </html>
+        
+    
+    
   `);
 });
 
 // PÁGINA DE REGISTRO
 app.get('/register', (req, res) => {
   res.send(`
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>Register - AI Pixel Tracker</title>
-        <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1">
-        <style>
+    
+    
+    
+        Register - AI Pixel Tracker
+        
+        
+        
             * { margin: 0; padding: 0; box-sizing: border-box; }
             body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f8fafc; min-height: 100vh; display: flex; align-items: center; justify-content: center; }
             .container { background: white; padding: 40px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); max-width: 400px; width: 100%; }
@@ -511,31 +511,31 @@ app.get('/register', (req, res) => {
             .result { margin-top: 20px; padding: 15px; border-radius: 8px; }
             .success { background: #c6f6d5; color: #22543d; }
             .error { background: #fed7d7; color: #c53030; }
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <h1>🤖 AI Pixel Tracker</h1>
-            <form id="registerForm">
-                <div class="form-group">
-                    <label for="name">Name *</label>
-                    <input type="text" id="name" name="name" required>
-                </div>
-                <div class="form-group">
-                    <label for="email">Email *</label>
-                    <input type="email" id="email" name="email" required>
-                </div>
-                <div class="form-group">
-                    <label for="website">Website (optional)</label>
-                    <input type="text" id="website" name="website" placeholder="your-website.com">
-                    <small style="color: #718096; font-size: 12px;">Don't include http:// or https://</small>
-                </div>
-                <button type="submit" class="btn">Get My Tracking Code</button>
-            </form>
-            <div id="result"></div>
-        </div>
         
-        <script>
+    
+    
+        
+            🤖 AI Pixel Tracker
+            
+                
+                    Name *
+                    
+                
+                
+                    Email *
+                    
+                
+                
+                    Website (optional)
+                    
+                    Don't include http:// or https://
+                
+                Get My Tracking Code
+            
+            
+        
+        
+        
             document.getElementById('registerForm').addEventListener('submit', async (e) => {
                 e.preventDefault();
                 
@@ -572,22 +572,22 @@ app.get('/register', (req, res) => {
                     \`;
                 }
             });
-        </script>
-    </body>
-    </html>
+        
+    
+    
   `);
 });
 
 // LOGIN página
 app.get('/login', (req, res) => {
   res.send(`
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>Login - AI Pixel Tracker</title>
-        <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1">
-        <style>
+    
+    
+    
+        Login - AI Pixel Tracker
+        
+        
+        
             * { margin: 0; padding: 0; box-sizing: border-box; }
             body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f8fafc; min-height: 100vh; display: flex; align-items: center; justify-content: center; }
             .container { background: white; padding: 40px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); max-width: 400px; width: 100%; }
@@ -603,23 +603,23 @@ app.get('/login', (req, res) => {
             .result { margin-top: 20px; padding: 15px; border-radius: 8px; }
             .success { background: #c6f6d5; color: #22543d; }
             .error { background: #fed7d7; color: #c53030; }
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <h1>🤖 Login to Dashboard</h1>
-            <form id="loginForm">
-                <div class="form-group">
-                    <label for="email">Email</label>
-                    <input type="email" id="email" name="email" required>
-                </div>
-                <button type="submit" class="btn">Access My Dashboard</button>
-                <a href="/register" class="btn btn-secondary" style="text-decoration: none; display: block; text-align: center;">Create New Account</a>
-            </form>
-            <div id="result"></div>
-        </div>
         
-        <script>
+    
+    
+        
+            🤖 Login to Dashboard
+            
+                
+                    Email
+                    
+                
+                Access My Dashboard
+                Create New Account
+            
+            
+        
+        
+        
             document.getElementById('loginForm').addEventListener('submit', async (e) => {
                 e.preventDefault();
                 
@@ -649,9 +649,9 @@ app.get('/login', (req, res) => {
                     \`;
                 }
             });
-        </script>
-    </body>
-    </html>
+        
+    
+    
   `);
 });
 
@@ -676,4 +676,7 @@ app.listen(PORT, () => {
   console.log(`🚀 AI Pixel Tracker API running on port ${PORT}`);
   console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`👥 Users: ${users.length}`);
-  console.log(`📊 Events: ${track
+  console.log(`📊 Events: ${trackingEvents.length}`);
+});
+
+module.exports = app;
