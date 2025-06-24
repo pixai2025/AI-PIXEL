@@ -488,11 +488,10 @@ app.get('/dashboard/:trackingId', (req, res) => {
   `);
 });
 
-// PÁGINA DE REGISTRO
 // PÁGINA DE REGISTRO (corregida)
 app.get('/register', (req, res) => {
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  res.send(`<!DOCTYPE html>
+  const html = `<!DOCTYPE html>
 <html>
 <head>
     <title>Register - AI Pixel Tracker</title>
@@ -500,14 +499,47 @@ app.get('/register', (req, res) => {
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f8fafc; min-height: 100vh; display: flex; align-items: center; justify-content: center; }
-        .container { background: white; padding: 40px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); max-width: 400px; width: 100%; }
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+            background: #f8fafc; 
+            min-height: 100vh; 
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+        }
+        .container { 
+            background: white; 
+            padding: 40px; 
+            border-radius: 12px; 
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1); 
+            max-width: 400px; 
+            width: 100%; 
+        }
         h1 { color: #1a202c; margin-bottom: 30px; text-align: center; }
         .form-group { margin-bottom: 20px; }
         label { display: block; margin-bottom: 5px; color: #2d3748; font-weight: 500; }
-        input { width: 100%; padding: 12px; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 16px; }
-        input:focus { outline: none; border-color: #3182ce; box-shadow: 0 0 0 3px rgba(49, 130, 206, 0.1); }
-        .btn { width: 100%; background: #3182ce; color: white; padding: 12px; border: none; border-radius: 8px; font-size: 16px; cursor: pointer; }
+        input { 
+            width: 100%; 
+            padding: 12px; 
+            border: 1px solid #e2e8f0; 
+            border-radius: 8px; 
+            font-size: 16px; 
+        }
+        input:focus { 
+            outline: none; 
+            border-color: #3182ce; 
+            box-shadow: 0 0 0 3px rgba(49, 130, 206, 0.1); 
+        }
+        .btn { 
+            width: 100%; 
+            background: #3182ce; 
+            color: white; 
+            padding: 12px; 
+            border: none; 
+            border-radius: 8px; 
+            font-size: 16px; 
+            cursor: pointer; 
+        }
         .btn:hover { background: #2c5aa0; }
         .result { margin-top: 20px; padding: 15px; border-radius: 8px; }
         .success { background: #c6f6d5; color: #22543d; }
@@ -553,31 +585,31 @@ app.get('/register', (req, res) => {
                 const result = await response.json();
                 
                 if (result.success) {
-                    document.getElementById('result').innerHTML = \`
-                        <div class="result success">
-                            <h3>✅ Success!</h3>
-                            <p><strong>Your Tracking ID:</strong> \${result.trackingId}</p>
-                            <p><a href="\${result.dashboardUrl}" target="_blank">🔗 Open Your Dashboard</a></p>
-                        </div>
-                    \`;
+                    document.getElementById('result').innerHTML = 
+                        '<div class="result success">' +
+                        '<h3>✅ Success!</h3>' +
+                        '<p><strong>Your Tracking ID:</strong> ' + result.trackingId + '</p>' +
+                        '<p><a href="' + result.dashboardUrl + '" target="_blank">🔗 Open Your Dashboard</a></p>' +
+                        '</div>';
                     e.target.reset();
                 } else {
                     throw new Error(result.error);
                 }
             } catch (error) {
-                document.getElementById('result').innerHTML = \`
-                    <div class="result error">
-                        <h3>❌ Error</h3>
-                        <p>\${error.message}</p>
-                    </div>
-                \`;
+                document.getElementById('result').innerHTML = 
+                    '<div class="result error">' +
+                    '<h3>❌ Error</h3>' +
+                    '<p>' + error.message + '</p>' +
+                    '</div>';
             }
         });
     </script>
 </body>
-</html>`);
-});   
-    
+</html>`;
+  
+  res.send(html);
+});
+
     
         Register - AI Pixel Tracker
         
