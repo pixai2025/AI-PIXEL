@@ -166,22 +166,24 @@ app.post('/api/register', async (req, res) => {
   
   users.push(newUser);
   
-  // Enviar email de confirmación
+  // Debug: Auto-confirmar usuario temporalmente
+newUser.isConfirmed = true;
+newUser.confirmedAt = new Date().toISOString();
+
+// Intentar enviar email pero continuar si falla
+try {
   const emailResult = await sendConfirmationEmail(email, name, trackingId, confirmationToken);
-  
-  if (emailResult.success) {
-    res.json({
-      success: true,
-      message: 'Registration successful! Please check your email to confirm your account.',
-      trackingId,
-      needsConfirmation: true
-    });
-  } else {
-    res.status(500).json({
-      error: 'Registration successful but email sending failed. Please contact support.',
-      trackingId
-    });
-  }
+  console.log('📧 Email result:', emailResult);
+} catch (error) {
+  console.log('📧 Email failed:', error.message);
+}
+
+res.json({
+  success: true,
+  message: 'Registration successful! You can access your dashboard immediately.',
+  trackingId,
+  dashboardUrl: `${req.protocol}://${req.get('host')}/dashboard/${trackingId}`,
+  debug: 'Auto-confirmed for testing'
 });
 
 // LOGIN DE USUARIOS (mejorado)
