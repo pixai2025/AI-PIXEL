@@ -1,799 +1,668 @@
 const express = require('express');
+const { MongoClient } = require('mongodb');
 const cors = require('cors');
-const helmet = require('helmet');
-const rateLimit = require('express-rate-limit');
+const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
-require('dotenv').config();
-
-// Configuración de email (con try-catch)
-let emailTransporter = null;
-try {
-  const nodemailer = require('nodemailer');
-  emailTransporter = nodemailer.createTransporter({
-    service: 'gmail',
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS
-    }
-  });
-} catch (error) {
-  console.log('⚠️ Nodemailer not available, emails disabled');
-}
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 3000;
 
-// Base de datos en memoria
-let users = [];
-let trackingEvents = [];
-
-// Middleware básico
-app.use(helmet());
-app.use(cors({
-  origin: process.env.CORS_ORIGIN || '*'
-}));
+// Configuración
+app.use(cors());
 app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.static('public'));
 
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 100
-});
-app.use(limiter);
+// MongoDB connection
+let db;
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/ai-pixel-tracker';
 
-// Función para generar tracking ID único
-function generateTrackingId(email) {
-  const timestamp = Date.now().toString().slice(-6);
-  const emailPrefix = email.split('@')[0].slice(0, 4);
-  return `${emailPrefix}-${timestamp}`;
+MongoClient.connect(MONGODB_URI)
+  .then(client => {
+    console.log('✅ Conectado a MongoDB');
+    db = client.db();
+  })
+  .catch(error => console.error('❌ Error MongoDB:', error));
+
+// Función para generar Site ID único
+function generateSiteId() {
+  return 'px_' + crypto.randomBytes(16).toString('hex');
 }
 
-// Función para enviar emails (con fallback)
-async function sendConfirmationEmail(email, name, trackingId, confirmationToken) {
-  if (!emailTransporter) {
-    console.log('📧 Email would be sent to:', email);
-    return { success: false, error: 'Email service not configured' };
-  }
+// Función para detectar bot de IA
+function detectAIBot(userAgent) {
+  const aiBots = [
+    'GPTBot', 'ChatGPT-User', 'OAI-SearchBot', 'SearchGPT',
+    'ClaudeBot', 'Claude-Web', 'Anthropic-AI',
+    'PerplexityBot', 'Perplexity',
+    'Google-Extended', 'GoogleOther', 'Bard',
+    'YouBot', 'You.com-bot',
+    'BingBot', 'bingbot', 'Bing',
+    'FacebookBot', 'facebookexternalhit',
+    'Applebot', 'AppleBot',
+    'ia_archiver', 'Internet Archive Bot',
+    'Wayback', 'archive.org_bot',
+    'SemrushBot', 'AhrefsBot', 'MJ12bot',
+    'DotBot', 'Screaming Frog',
+    'OpenAI', 'AI2Bot', 'AI-Bot'
+  ];
   
-  const confirmationUrl = `${process.env.RAILWAY_STATIC_URL || 'http://localhost:3001'}/confirm/${confirmationToken}`;
+  if (!userAgent) return null;
   
-  const htmlContent = `
-    
-    
-    
-        
-            body { font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; }
-            .header { background: linear-gradient(135deg, #1e40af, #3b82f6); color: white; padding: 30px; text-align: center; border-radius: 8px; }
-            .content { padding: 30px; background: #f9fafb; border-radius: 8px; margin: 20px 0; }
-            .button { background: #3b82f6; color: white; padding: 15px 30px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: bold; }
-            .code { background: #1f2937; color: #10b981; padding: 15px; border-radius: 6px; font-family: monospace; font-size: 16px; text-align: center; margin: 20px 0; }
-        
-    
-    
-        
-            🤖 Welcome to AI Pixel Tracker!
-        
-        
-        
-            Hi ${name}!
-            Thanks for signing up for AI Pixel Tracker - the first tool to detect when AI bots visit your website.
-            
-            Please confirm your email address by clicking the button below:
-            
-                Confirm Email & Access Dashboard
-            
-            
-            
-            
-            Your Tracking Details:
-            Tracking ID:
-            ${trackingId}
-            
-            Installation Code:
-            <script src="${process.env.RAILWAY_STATIC_URL || 'http://localhost:3001'}/client/ai-pixel-tracker.js" data-tracking-id="${trackingId}"></script>
-            
-            What's Next?
-            
-                Confirm your email (click button above)
-                Add the tracking code to your website
-                Monitor AI bot visits in your dashboard
-            
-            
-            If the button doesn't work, copy this link: 
-            ${confirmationUrl}
-        
-        
-        
-            AI Pixel Tracker - Detecting AI bot visits worldwide
-        
-    
-    
-  `;
-
-  const mailOptions = {
-    from: process.env.EMAIL_FROM || 'AI Pixel Tracker ',
-    to: email,
-    subject: '🤖 Confirm your AI Pixel Tracker account',
-    html: htmlContent
-  };
-
-  try {
-    await emailTransporter.sendMail(mailOptions);
-    return { success: true };
-  } catch (error) {
-    console.error('Email sending failed:', error);
-    return { success: false, error: error.message };
+  for (const bot of aiBots) {
+    if (userAgent.toLowerCase().includes(bot.toLowerCase())) {
+      return bot;
+    }
   }
+  return null;
 }
 
-// Ruta básica de salud
+// RUTAS PRINCIPALES
+
+// 1. Landing page
 app.get('/', (req, res) => {
-  res.json({ 
-    message: 'AI Pixel Tracker API is running!',
-    version: '2.0.0',
-    timestamp: new Date().toISOString()
-  });
-});
-
-// REGISTRO DE USUARIOS
-app.post('/api/register', async (req, res) => {
-  const { email, name, website } = req.body;
-  
-  if (!email || !name) {
-    return res.status(400).json({ error: 'Email and name are required' });
-  }
-  
-  // Verificar si el usuario ya existe
-  const existingUser = users.find(u => u.email === email);
-  if (existingUser) {
-    return res.status(400).json({ error: 'Email already registered' });
-  }
-  
-  // Crear nuevo usuario
-  const trackingId = generateTrackingId(email);
-  const confirmationToken = crypto.randomBytes(32).toString('hex');
-  
-  const newUser = {
-    id: users.length + 1,
-    email,
-    name,
-    website: website ? (website.startsWith('http') ? website : `https://${website}`) : '',
-    trackingId,
-    confirmationToken,
-    isConfirmed: true, // Auto-confirmar por ahora
-    isActive: true,
-    createdAt: new Date().toISOString(),
-    confirmedAt: new Date().toISOString()
-  };
-  
-  users.push(newUser);
-  
-  // Intentar enviar email (pero continuar si falla)
-  try {
-    const emailResult = await sendConfirmationEmail(email, name, trackingId, confirmationToken);
-    console.log('📧 Email result:', emailResult);
-  } catch (error) {
-    console.log('📧 Email failed:', error.message);
-  }
-  
-  res.json({
-    success: true,
-    message: 'Registration successful! You can access your dashboard immediately.',
-    trackingId,
-    dashboardUrl: `${req.protocol}://${req.get('host')}/dashboard/${trackingId}`
-  });
-});
-
-// LOGIN DE USUARIOS
-app.post('/api/login', (req, res) => {
-  const { email } = req.body;
-  
-  const user = users.find(u => u.email === email);
-  if (!user) {
-    return res.status(404).json({ error: 'Email not found. Please register first.' });
-  }
-  
-  res.json({
-    success: true,
-    trackingId: user.trackingId,
-    dashboardUrl: `${req.protocol}://${req.get('host')}/dashboard/${user.trackingId}`,
-    message: 'Login successful!'
-  });
-});
-
-// CONFIRMACIÓN DE EMAIL
-app.get('/confirm/:token', (req, res) => {
-  const confirmationToken = req.params.token;
-  
-  const user = users.find(u => u.confirmationToken === confirmationToken);
-  
-  if (!user) {
-    return res.send(`
-      
-      
-      
-          Invalid Confirmation
-          
-              body { font-family: Arial, sans-serif; max-width: 500px; margin: 100px auto; padding: 40px; text-align: center; }
-              .error { color: #dc2626; }
-          
-      
-      
-          ❌ Invalid Confirmation Link
-          This confirmation link is invalid or has already been used.
-          Register Again
-      
-      
-    `);
-  }
-  
-  if (user.isConfirmed) {
-    return res.redirect(`/dashboard/${user.trackingId}?welcome=true`);
-  }
-  
-  // Confirmar usuario
-  user.isConfirmed = true;
-  user.confirmedAt = new Date().toISOString();
-  delete user.confirmationToken;
-  
   res.send(`
     
     
     
-        Email Confirmed!
-        
-            body { font-family: Arial, sans-serif; max-width: 600px; margin: 100px auto; padding: 40px; text-align: center; }
-            .success { color: #059669; }
-            .button { background: #3b82f6; color: white; padding: 15px 30px; text-decoration: none; border-radius: 6px; display: inline-block; margin: 20px; }
-            .code { background: #1f2937; color: #10b981; padding: 15px; border-radius: 6px; font-family: monospace; margin: 20px 0; }
-        
+      AI Pixel Tracker
+      
+      
+      
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; background: #1a1a1a; color: white; }
+        .container { text-align: center; }
+        .btn { display: inline-block; background: #4CAF50; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; margin: 10px; }
+        .btn:hover { background: #45a049; }
+        .feature { background: #2a2a2a; padding: 20px; margin: 10px 0; border-radius: 5px; }
+      
     
     
-        ✅ Email Confirmed!
-        Welcome to AI Pixel Tracker, ${user.name}!
+      
+        🤖 AI Pixel Tracker
+        El primer tracker que detecta cuando las IAs consumen tu contenido
         
-        🚀 Access Your Dashboard
         
-        Your Tracking Code:
-        <script src="${req.protocol}://${req.get('host')}/client/ai-pixel-tracker.js" data-tracking-id="${user.trackingId}"></script>
+          ✨ Detecta 25+ Bots de IA
+          GPTBot, ClaudeBot, PerplexityBot, Google-Extended y más
         
-        Add this code to your website to start tracking AI bot visits!
+        
+        
+          📊 Dashboard en Tiempo Real
+          Ve qué IAs visitan tu sitio y cuándo
+        
+        
+        
+          💰 Modelo Freemium
+          1K pageviews gratis, luego $29/mes por sitio
+        
+        
+        Empezar Gratis
+        Iniciar Sesión
+      
     
     
   `);
 });
 
-// Endpoint de tracking
-app.post('/api/track', (req, res) => {
-  const { trackingId, event, url, userAgent, botDetected, botInfo } = req.body;
-  
-  if (!trackingId) {
-    return res.status(400).json({ error: 'Tracking ID is required' });
+// 2. API de registro
+app.post('/api/register', async (req, res) => {
+  try {
+    const { email, password, domain } = req.body;
+    
+    if (!email || !password || !domain) {
+      return res.status(400).json({ error: 'Email, password y domain son requeridos' });
+    }
+    
+    // Verificar si el usuario ya existe
+    const existingUser = await db.collection('users').findOne({ email });
+    if (existingUser) {
+      return res.status(400).json({ error: 'El usuario ya existe' });
+    }
+    
+    // Hash de la password
+    const hashedPassword = await bcrypt.hash(password, 10);
+    
+    // Generar Site ID único
+    const siteId = generateSiteId();
+    
+    // Crear usuario
+    const newUser = {
+      email,
+      password: hashedPassword,
+      domain,
+      siteId,
+      plan: 'free',
+      pageviews: 0,
+      maxPageviews: 1000,
+      createdAt: new Date(),
+      lastLogin: new Date()
+    };
+    
+    const result = await db.collection('users').insertOne(newUser);
+    
+    res.json({ 
+      success: true, 
+      userId: result.insertedId,
+      siteId: siteId,
+      message: 'Usuario registrado exitosamente'
+    });
+    
+  } catch (error) {
+    console.error('Error en registro:', error);
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
-  
-  const user = users.find(u => u.trackingId === trackingId);
-  if (!user) {
-    return res.status(404).json({ error: 'Invalid tracking ID' });
-  }
-  
-  const trackingEvent = {
-    id: trackingEvents.length + 1,
-    trackingId,
-    event: event || 'page_view',
-    url: url || 'unknown',
-    userAgent: userAgent || 'unknown',
-    botDetected: botDetected || false,
-    botInfo: botInfo || null,
-    timestamp: new Date().toISOString(),
-    ip: req.ip
-  };
-  
-  trackingEvents.push(trackingEvent);
-  
-  console.log(`📊 Event tracked for ${trackingId}:`, trackingEvent);
-  
-  res.json({ 
-    success: true, 
-    message: 'Event tracked successfully',
-    eventId: trackingEvent.id
-  });
 });
 
-// Endpoint para servir el tracker JS
-app.get('/client/ai-pixel-tracker.js', (req, res) => {
+// 3. API de login
+app.post('/api/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email y password son requeridos' });
+    }
+    
+    // Buscar usuario
+    const user = await db.collection('users').findOne({ email });
+    if (!user) {
+      return res.status(400).json({ error: 'Usuario no encontrado' });
+    }
+    
+    // Verificar password
+    const validPassword = await bcrypt.compare(password, user.password);
+    if (!validPassword) {
+      return res.status(400).json({ error: 'Password incorrecta' });
+    }
+    
+    // Actualizar último login
+    await db.collection('users').updateOne(
+      { _id: user._id },
+      { $set: { lastLogin: new Date() } }
+    );
+    
+    res.json({ 
+      success: true, 
+      userId: user._id,
+      siteId: user.siteId,
+      email: user.email,
+      domain: user.domain,
+      plan: user.plan
+    });
+    
+  } catch (error) {
+    console.error('Error en login:', error);
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
+});
+
+// 4. API de tracking
+app.post('/api/track', async (req, res) => {
+  try {
+    const { siteId, userAgent, url, referrer, timestamp } = req.body;
+    
+    if (!siteId) {
+      return res.status(400).json({ error: 'Site ID es requerido' });
+    }
+    
+    // Detectar si es un bot de IA
+    const botType = detectAIBot(userAgent);
+    
+    if (botType) {
+      // Buscar usuario por siteId
+      const user = await db.collection('users').findOne({ siteId });
+      if (!user) {
+        return res.status(404).json({ error: 'Site ID no válido' });
+      }
+      
+      // Verificar límite de pageviews para usuarios free
+      if (user.plan === 'free' && user.pageviews >= user.maxPageviews) {
+        return res.status(403).json({ error: 'Límite de pageviews alcanzado' });
+      }
+      
+      // Guardar evento de tracking
+      const trackingEvent = {
+        siteId,
+        userId: user._id,
+        domain: user.domain,
+        botType,
+        userAgent,
+        url: url || 'unknown',
+        referrer: referrer || 'direct',
+        timestamp: new Date(timestamp) || new Date(),
+        ip: req.ip || req.connection.remoteAddress
+      };
+      
+      await db.collection('tracking_events').insertOne(trackingEvent);
+      
+      // Incrementar contador de pageviews
+      await db.collection('users').updateOne(
+        { _id: user._id },
+        { $inc: { pageviews: 1 } }
+      );
+      
+      console.log(`🤖 Bot detectado: ${botType} en ${user.domain}`);
+    }
+    
+    res.json({ 
+      success: true, 
+      botDetected: !!botType,
+      botType: botType || null
+    });
+    
+  } catch (error) {
+    console.error('Error en tracking:', error);
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
+});
+
+// 5. Dashboard principal
+app.get('/dashboard', (req, res) => {
+  res.send(`
+    
+    
+    
+      Dashboard - AI Pixel Tracker
+      
+      
+      
+        body { font-family: Arial, sans-serif; margin: 0; background: #1a1a1a; color: white; }
+        .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+        .header { background: #2a2a2a; padding: 20px; border-radius: 5px; margin-bottom: 20px; }
+        .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-bottom: 20px; }
+        .stat-card { background: #2a2a2a; padding: 20px; border-radius: 5px; text-align: center; }
+        .stat-number { font-size: 2em; font-weight: bold; color: #4CAF50; }
+        .code-section { background: #2a2a2a; padding: 20px; border-radius: 5px; margin-bottom: 20px; }
+        .code-box { background: #1a1a1a; padding: 15px; border-radius: 3px; font-family: monospace; font-size: 12px; overflow-x: auto; }
+        .btn { background: #4CAF50; color: white; padding: 10px 20px; border: none; border-radius: 3px; cursor: pointer; }
+        .btn:hover { background: #45a049; }
+        .events-table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        .events-table th, .events-table td { padding: 10px; text-align: left; border-bottom: 1px solid #333; }
+        .events-table th { background: #333; }
+        .login-form { max-width: 400px; margin: 50px auto; background: #2a2a2a; padding: 30px; border-radius: 5px; }
+        .form-group { margin-bottom: 15px; }
+        .form-group label { display: block; margin-bottom: 5px; }
+        .form-group input { width: 100%; padding: 10px; border: 1px solid #333; border-radius: 3px; background: #1a1a1a; color: white; }
+      
+    
+    
+      
+        
+          Iniciar Sesión
+          
+            Email:
+            
+          
+          
+            Password:
+            
+          
+          Iniciar Sesión
+        
+        
+        
+          
+            🤖 AI Pixel Tracker Dashboard
+            Dominio:  | Plan: 
+            Cerrar Sesión
+          
+          
+          
+            
+              0
+              Bots Detectados
+            
+            
+              0
+              Pageviews Usadas
+            
+            
+              0
+              Tipos de Bots
+            
+          
+          
+          
+            📋 Tu Código de Tracking
+            Copia y pega este código en el <head> de tu sitio web:
+            
+              
+            
+            Copiar Código
+          
+          
+          
+            📊 Eventos Recientes
+            
+              
+                
+                  Fecha
+                  Bot Detectado
+                  URL
+                  User Agent
+                
+              
+              
+              
+            
+          
+        
+      
+      
+      
+        let currentUser = null;
+        
+        async function login() {
+          const email = document.getElementById('email').value;
+          const password = document.getElementById('password').value;
+          
+          try {
+            const response = await fetch('/api/login', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ email, password })
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+              currentUser = data;
+              document.getElementById('loginSection').style.display = 'none';
+              document.getElementById('dashboardSection').style.display = 'block';
+              loadDashboard();
+            } else {
+              alert('Error: ' + data.error);
+            }
+          } catch (error) {
+            alert('Error de conexión');
+          }
+        }
+        
+        function logout() {
+          currentUser = null;
+          document.getElementById('loginSection').style.display = 'block';
+          document.getElementById('dashboardSection').style.display = 'none';
+        }
+        
+        async function loadDashboard() {
+          if (!currentUser) return;
+          
+          // Actualizar información del usuario
+          document.getElementById('userDomain').textContent = currentUser.domain;
+          document.getElementById('userPlan').textContent = currentUser.plan.toUpperCase();
+          
+          // Generar código de tracking
+          const trackingCode = \`<script>
+(function() {
+  const tracker = document.createElement('script');
+  tracker.src = 'https://\${window.location.hostname}/ai-pixel-tracker.js';
+  tracker.setAttribute('data-site-id', '\${currentUser.siteId}');
+  document.head.appendChild(tracker);
+})();
+\`;
+          
+          document.getElementById('trackingCode').textContent = trackingCode;
+          
+          // Cargar estadísticas
+          loadStats();
+          loadEvents();
+        }
+        
+        async function loadStats() {
+          try {
+            const response = await fetch(\`/api/stats/\${currentUser.userId}\`);
+            const stats = await response.json();
+            
+            document.getElementById('totalBots').textContent = stats.totalEvents || 0;
+            document.getElementById('totalPageviews').textContent = stats.pageviews || 0;
+            document.getElementById('uniqueBots').textContent = stats.uniqueBots || 0;
+          } catch (error) {
+            console.error('Error cargando stats:', error);
+          }
+        }
+        
+        async function loadEvents() {
+          try {
+            const response = await fetch(\`/api/events/\${currentUser.userId}\`);
+            const events = await response.json();
+            
+            const tbody = document.getElementById('eventsBody');
+            tbody.innerHTML = '';
+            
+            events.forEach(event => {
+              const row = tbody.insertRow();
+              row.insertCell(0).textContent = new Date(event.timestamp).toLocaleString();
+              row.insertCell(1).textContent = event.botType;
+              row.insertCell(2).textContent = event.url;
+              row.insertCell(3).textContent = event.userAgent.substring(0, 50) + '...';
+            });
+          } catch (error) {
+            console.error('Error cargando eventos:', error);
+          }
+        }
+        
+        function copyCode() {
+          const codeElement = document.getElementById('trackingCode');
+          navigator.clipboard.writeText(codeElement.textContent);
+          alert('¡Código copiado al portapapeles!');
+        }
+        
+        // Auto-refresh cada 30 segundos
+        setInterval(() => {
+          if (currentUser) {
+            loadStats();
+            loadEvents();
+          }
+        }, 30000);
+      
+    
+    
+  `);
+});
+
+// 6. API de estadísticas por usuario
+app.get('/api/stats/:userId', async (req, res) => {
+  try {
+    const userId = req.params.userId;
+    
+    // Buscar usuario
+    const user = await db.collection('users').findOne({ _id: require('mongodb').ObjectId(userId) });
+    if (!user) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
+    
+    // Contar eventos de tracking
+    const totalEvents = await db.collection('tracking_events').countDocuments({ userId: user._id });
+    
+    // Contar tipos únicos de bots
+    const uniqueBots = await db.collection('tracking_events').distinct('botType', { userId: user._id });
+    
+    res.json({
+      totalEvents,
+      pageviews: user.pageviews,
+      maxPageviews: user.maxPageviews,
+      uniqueBots: uniqueBots.length,
+      plan: user.plan,
+      domain: user.domain
+    });
+    
+  } catch (error) {
+    console.error('Error obteniendo stats:', error);
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
+});
+
+// 7. API de eventos por usuario
+app.get('/api/events/:userId', async (req, res) => {
+  try {
+    const userId = req.params.userId;
+    
+    // Buscar eventos recientes del usuario
+    const events = await db.collection('tracking_events')
+      .find({ userId: require('mongodb').ObjectId(userId) })
+      .sort({ timestamp: -1 })
+      .limit(50)
+      .toArray();
+    
+    res.json(events);
+    
+  } catch (error) {
+    console.error('Error obteniendo eventos:', error);
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
+});
+
+// 8. Servir el SDK de tracking
+app.get('/ai-pixel-tracker.js', (req, res) => {
   res.setHeader('Content-Type', 'application/javascript');
   res.send(`
+// AI Pixel Tracker SDK v1.0
 (function() {
   'use strict';
   
-  const AI_BOTS = {
-    'GPTBot': 'OpenAI Training',
-    'ChatGPT-User': 'OpenAI Real-time',
-    'OAI-SearchBot': 'OpenAI Search',
-    'ClaudeBot': 'Anthropic Claude',
-    'PerplexityBot': 'Perplexity AI',
-    'Google-Extended': 'Google Gemini',
-    'BingBot': 'Microsoft Bing',
-    'Amazonbot': 'Amazon Alexa',
-    'anthropic-ai': 'Anthropic Research',
-    'cohere-ai': 'Cohere AI',
-    'AI2Bot': 'Allen Institute',
-    'CCBot': 'Common Crawl',
-    'Bytespider': 'ByteDance TikTok'
-  };
+  // Obtener Site ID del script tag
+  const scripts = document.getElementsByTagName('script');
+  let siteId = null;
   
-  function detectAIBot() {
-    const userAgent = navigator.userAgent;
-    for (const [botName, description] of Object.entries(AI_BOTS)) {
-      if (userAgent.includes(botName)) {
-        return { detected: true, bot: botName, description };
-      }
+  for (let script of scripts) {
+    if (script.src && script.src.includes('ai-pixel-tracker.js')) {
+      siteId = script.getAttribute('data-site-id');
+      break;
     }
-    return { detected: false };
   }
   
-  function sendEvent(eventData) {
-    const trackingId = document.currentScript?.getAttribute('data-tracking-id') || 
-                      document.querySelector('[data-tracking-id]')?.getAttribute('data-tracking-id');
-    
-    if (!trackingId) {
-      console.warn('AI Pixel: No tracking ID found');
-      return;
-    }
-    
-    const payload = {
-      trackingId,
-      timestamp: new Date().toISOString(),
-      url: window.location.href,
+  if (!siteId) {
+    console.error('AI Pixel Tracker: Site ID no encontrado');
+    return;
+  }
+  
+  // Función para enviar evento de tracking
+  function trackEvent() {
+    const data = {
+      siteId: siteId,
       userAgent: navigator.userAgent,
+      url: window.location.href,
       referrer: document.referrer,
-      ...eventData
+      timestamp: new Date().toISOString()
     };
     
-    const endpoint = '${req.protocol}://${req.get('host')}/api/track';
-    
-    if (navigator.sendBeacon) {
-      navigator.sendBeacon(endpoint, JSON.stringify(payload));
-    } else {
-      fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-        keepalive: true
-      }).catch(e => console.log('AI Pixel tracking failed:', e));
-    }
-  }
-  
-  function init() {
-    const botDetection = detectAIBot();
-    
-    sendEvent({
-      event: 'page_view',
-      botDetected: botDetection.detected,
-      botInfo: botDetection
-    });
-    
-    if (botDetection.detected) {
-      sendEvent({
-        event: 'ai_bot_detected',
-        botName: botDetection.bot,
-        botDescription: botDetection.description
+    fetch('/api/track', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(data),
+      mode: 'cors'
+    }).then(response => response.json())
+      .then(result => {
+        if (result.botDetected) {
+          console.log('🤖 AI Bot detectado:', result.botType);
+        }
+      })
+      .catch(error => {
+        console.error('Error en tracking:', error);
       });
-      console.log('🤖 AI Bot detected:', botDetection);
-    }
   }
   
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
-  } else {
-    init();
-  }
+  // Enviar evento inmediatamente
+  trackEvent();
+  
+  // También enviar en page visibility change (útil para SPAs)
+  document.addEventListener('visibilitychange', function() {
+    if (!document.hidden) {
+      trackEvent();
+    }
+  });
   
 })();
   `);
 });
 
-// DASHBOARD INDIVIDUAL
-app.get('/dashboard/:trackingId', (req, res) => {
-  const trackingId = req.params.trackingId;
-  
-  const user = users.find(u => u.trackingId === trackingId);
-  if (!user) {
-    return res.status(404).send(`
-      ❌ Tracking ID not found
-      Please check your tracking ID or register here
-    `);
-  }
-  
-  const userEvents = trackingEvents.filter(e => e.trackingId === trackingId);
-  const totalEvents = userEvents.length;
-  const botEvents = userEvents.filter(e => e.botDetected);
-  const totalBotDetections = botEvents.length;
-  
-  const uniqueUrls = [...new Set(userEvents.map(e => e.url))].length;
-  const mostActiveBot = botEvents.length > 0 
-    ? botEvents.reduce((acc, event) => {
-        const bot = event.botInfo?.bot || 'Unknown';
-        acc[bot] = (acc[bot] || 0) + 1;
-        return acc;
-      }, {})
-    : {};
-  
-  const topBot = Object.keys(mostActiveBot).length > 0 
-    ? Object.keys(mostActiveBot).reduce((a, b) => mostActiveBot[a] > mostActiveBot[b] ? a : b)
-    : 'None detected';
-  
+// 9. Páginas estáticas adicionales
+app.get('/register.html', (req, res) => {
   res.send(`
     
     
     
-        AI Pixel Dashboard - ${user.name}
-        
-        
-        
-            * { margin: 0; padding: 0; box-sizing: border-box; }
-            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f8fafc; }
-            .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
-            .header { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 30px; }
-            .header h1 { color: #1a202c; font-size: 28px; margin-bottom: 10px; }
-            .header p { color: #718096; font-size: 16px; }
-            .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; margin-bottom: 30px; }
-            .card { background: white; padding: 25px; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-            .metric { font-size: 32px; font-weight: bold; color: #3182ce; margin-bottom: 5px; }
-            .metric-label { color: #718096; font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px; }
-            .install-code { background: #2d3748; color: #e2e8f0; padding: 20px; border-radius: 8px; font-family: 'Monaco', 'Courier New', monospace; font-size: 14px; overflow-x: auto; }
-            .status-badge { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: bold; background: #c6f6d5; color: #22543d; }
-        
+      Registro - AI Pixel Tracker
+      
+      
+        body { font-family: Arial, sans-serif; max-width: 400px; margin: 50px auto; background: #1a1a1a; color: white; }
+        .form-container { background: #2a2a2a; padding: 30px; border-radius: 5px; }
+        .form-group { margin-bottom: 15px; }
+        .form-group label { display: block; margin-bottom: 5px; }
+        .form-group input { width: 100%; padding: 10px; border: 1px solid #333; border-radius: 3px; background: #1a1a1a; color: white; }
+        .btn { width: 100%; background: #4CAF50; color: white; padding: 12px; border: none; border-radius: 3px; cursor: pointer; font-size: 16px; }
+        .btn:hover { background: #45a049; }
+        .success { background: #4CAF50; color: white; padding: 15px; border-radius: 3px; margin-bottom: 20px; }
+        .error { background: #f44336; color: white; padding: 15px; border-radius: 3px; margin-bottom: 20px; }
+      
     
     
-        
-            
-                🤖 AI Pixel Dashboard
-                Welcome back, ${user.name} • Tracking ID: ${trackingId} • Active
-                Website: ${user.website || 'Not specified'} • Member since: ${new Date(user.createdAt).toLocaleDateString()}
-            
-            
-            
-                
-                    ${totalEvents}
-                    Total Page Views
-                
-                
-                    ${totalBotDetections}
-                    AI Bot Visits
-                
-                
-                    ${uniqueUrls}
-                    Unique Pages
-                
-                
-                    ${topBot}
-                    Most Active Bot
-                
-            
-            
-            
-                📦 Installation Code
-                Copy this code and paste it in your website's HTML:
-                <script src="${req.protocol}://${req.get('host')}/client/ai-pixel-tracker.js" data-tracking-id="${trackingId}"></script>
-            
+      
+        🤖 Registro - AI Pixel Tracker
         
         
         
-            setTimeout(() => window.location.reload(), 30000);
+          
+            Email:
+            
+          
+          
+            Password:
+            
+          
+          
+            Dominio de tu sitio:
+            
+          
+          Registrarse Gratis
         
-    
-    
-  `);
-});
-
-// PÁGINA DE REGISTRO (corregida)
-app.get('/register', (req, res) => {
-  res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  const html = `<!DOCTYPE html>
-<html>
-<head>
-    <title>Register - AI Pixel Tracker</title>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { 
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
-            background: #f8fafc; 
-            min-height: 100vh; 
-            display: flex; 
-            align-items: center; 
-            justify-content: center; 
-        }
-        .container { 
-            background: white; 
-            padding: 40px; 
-            border-radius: 12px; 
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1); 
-            max-width: 400px; 
-            width: 100%; 
-        }
-        h1 { color: #1a202c; margin-bottom: 30px; text-align: center; }
-        .form-group { margin-bottom: 20px; }
-        label { display: block; margin-bottom: 5px; color: #2d3748; font-weight: 500; }
-        input { 
-            width: 100%; 
-            padding: 12px; 
-            border: 1px solid #e2e8f0; 
-            border-radius: 8px; 
-            font-size: 16px; 
-        }
-        input:focus { 
-            outline: none; 
-            border-color: #3182ce; 
-            box-shadow: 0 0 0 3px rgba(49, 130, 206, 0.1); 
-        }
-        .btn { 
-            width: 100%; 
-            background: #3182ce; 
-            color: white; 
-            padding: 12px; 
-            border: none; 
-            border-radius: 8px; 
-            font-size: 16px; 
-            cursor: pointer; 
-        }
-        .btn:hover { background: #2c5aa0; }
-        .result { margin-top: 20px; padding: 15px; border-radius: 8px; }
-        .success { background: #c6f6d5; color: #22543d; }
-        .error { background: #fed7d7; color: #c53030; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>🤖 AI Pixel Tracker</h1>
-        <form id="registerForm">
-            <div class="form-group">
-                <label for="name">Name *</label>
-                <input type="text" id="name" name="name" required>
-            </div>
-            <div class="form-group">
-                <label for="email">Email *</label>
-                <input type="email" id="email" name="email" required>
-            </div>
-            <div class="form-group">
-                <label for="website">Website (optional)</label>
-                <input type="text" id="website" name="website" placeholder="your-website.com">
-                <small style="color: #718096; font-size: 12px;">Don't include http:// or https://</small>
-            </div>
-            <button type="submit" class="btn">Get My Tracking Code</button>
-        </form>
-        <div id="result"></div>
-    </div>
-    
-    <script>
+        
+        
+          ¿Ya tienes cuenta? Iniciar sesión
+        
+      
+      
+      
         document.getElementById('registerForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
+          e.preventDefault();
+          
+          const email = document.getElementById('email').value;
+          const password = document.getElementById('password').value;
+          const domain = document.getElementById('domain').value;
+          
+          try {
+            const response = await fetch('/api/register', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ email, password, domain })
+            });
             
-            const formData = new FormData(e.target);
-            const data = Object.fromEntries(formData);
+            const data = await response.json();
+            const messageDiv = document.getElementById('message');
             
-            try {
-                const response = await fetch('/api/register', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(data)
-                });
-                
-                const result = await response.json();
-                
-                if (result.success) {
-                    document.getElementById('result').innerHTML = 
-                        '<div class="result success">' +
-                        '<h3>✅ Success!</h3>' +
-                        '<p><strong>Your Tracking ID:</strong> ' + result.trackingId + '</p>' +
-                        '<p><a href="' + result.dashboardUrl + '" target="_blank">🔗 Open Your Dashboard</a></p>' +
-                        '</div>';
-                    e.target.reset();
-                } else {
-                    throw new Error(result.error);
-                }
-            } catch (error) {
-                document.getElementById('result').innerHTML = 
-                    '<div class="result error">' +
-                    '<h3>❌ Error</h3>' +
-                    '<p>' + error.message + '</p>' +
-                    '</div>';
+            if (data.success) {
+              messageDiv.innerHTML = '<div class="success">¡Registro exitoso! Tu Site ID: ' + data.siteId + '<br>Redirigiendo al dashboard...</div>';
+              setTimeout(() => {
+                window.location.href = '/dashboard';
+              }, 3000);
+            } else {
+              messageDiv.innerHTML = '<div class="error">Error: ' + data.error + '</div>';
             }
+          } catch (error) {
+            document.getElementById('message').innerHTML = '<div class="error">Error de conexión</div>';
+          }
         });
-    </script>
-</body>
-</html>`;
-  
-  res.send(html);
-});
-
-    
-        Register - AI Pixel Tracker
-        
-        
-        
-            * { margin: 0; padding: 0; box-sizing: border-box; }
-            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f8fafc; min-height: 100vh; display: flex; align-items: center; justify-content: center; }
-            .container { background: white; padding: 40px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); max-width: 400px; width: 100%; }
-            h1 { color: #1a202c; margin-bottom: 30px; text-align: center; }
-            .form-group { margin-bottom: 20px; }
-            label { display: block; margin-bottom: 5px; color: #2d3748; font-weight: 500; }
-            input { width: 100%; padding: 12px; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 16px; }
-            input:focus { outline: none; border-color: #3182ce; box-shadow: 0 0 0 3px rgba(49, 130, 206, 0.1); }
-            .btn { width: 100%; background: #3182ce; color: white; padding: 12px; border: none; border-radius: 8px; font-size: 16px; cursor: pointer; }
-            .btn:hover { background: #2c5aa0; }
-            .result { margin-top: 20px; padding: 15px; border-radius: 8px; }
-            .success { background: #c6f6d5; color: #22543d; }
-            .error { background: #fed7d7; color: #c53030; }
-        
-    
-    
-        
-            🤖 AI Pixel Tracker
-            
-                
-                    Name *
-                    
-                
-                
-                    Email *
-                    
-                
-                
-                    Website (optional)
-                    
-                    Don't include http:// or https://
-                
-                Get My Tracking Code
-            
-            
-        
-        
-        
-            document.getElementById('registerForm').addEventListener('submit', async (e) => {
-                e.preventDefault();
-                
-                const formData = new FormData(e.target);
-                const data = Object.fromEntries(formData);
-                
-                try {
-                    const response = await fetch('/api/register', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(data)
-                    });
-                    
-                    const result = await response.json();
-                    
-                    if (result.success) {
-                        document.getElementById('result').innerHTML = \`
-                            <div class="result success">
-                                <h3>✅ Success!</h3>
-                                <p><strong>Your Tracking ID:</strong> \${result.trackingId}</p>
-                                <p><a href="\${result.dashboardUrl}" target="_blank">🔗 Open Your Dashboard</a></p>
-                            </div>
-                        \`;
-                        e.target.reset();
-                    } else {
-                        throw new Error(result.error);
-                    }
-                } catch (error) {
-                    document.getElementById('result').innerHTML = \`
-                        <div class="result error">
-                            <h3>❌ Error</h3>
-                            <p>\${error.message}</p>
-                        </div>
-                    \`;
-                }
-            });
-        
+      
     
     
   `);
-});
-
-// LOGIN página
-app.get('/login', (req, res) => {
-  res.send(`
-    
-    
-    
-        Login - AI Pixel Tracker
-        
-        
-        
-            * { margin: 0; padding: 0; box-sizing: border-box; }
-            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f8fafc; min-height: 100vh; display: flex; align-items: center; justify-content: center; }
-            .container { background: white; padding: 40px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); max-width: 400px; width: 100%; }
-            h1 { color: #1a202c; margin-bottom: 30px; text-align: center; }
-            .form-group { margin-bottom: 20px; }
-            label { display: block; margin-bottom: 5px; color: #2d3748; font-weight: 500; }
-            input { width: 100%; padding: 12px; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 16px; }
-            input:focus { outline: none; border-color: #3182ce; box-shadow: 0 0 0 3px rgba(49, 130, 206, 0.1); }
-            .btn { width: 100%; background: #3182ce; color: white; padding: 12px; border: none; border-radius: 8px; font-size: 16px; cursor: pointer; margin-bottom: 15px; }
-            .btn:hover { background: #2c5aa0; }
-            .btn-secondary { background: #e2e8f0; color: #2d3748; }
-            .btn-secondary:hover { background: #cbd5e0; }
-            .result { margin-top: 20px; padding: 15px; border-radius: 8px; }
-            .success { background: #c6f6d5; color: #22543d; }
-            .error { background: #fed7d7; color: #c53030; }
-        
-    
-    
-        
-            🤖 Login to Dashboard
-            
-                
-                    Email
-                    
-                
-                Access My Dashboard
-                Create New Account
-            
-            
-        
-        
-        
-            document.getElementById('loginForm').addEventListener('submit', async (e) => {
-                e.preventDefault();
-                
-                const formData = new FormData(e.target);
-                const data = Object.fromEntries(formData);
-                
-                try {
-                    const response = await fetch('/api/login', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(data)
-                    });
-                    
-                    const result = await response.json();
-                    
-                    if (result.success) {
-                        window.location.href = result.dashboardUrl;
-                    } else {
-                        throw new Error(result.error);
-                    }
-                } catch (error) {
-                    document.getElementById('result').innerHTML = \`
-                        <div class="result error">
-                            <h3>❌ Error</h3>
-                            <p>\${error.message}</p>
-                        </div>
-                    \`;
-                }
-            });
-        
-    
-    
-  `);
-});
-
-// Dashboard principal
-app.get('/dashboard', (req, res) => {
-  res.redirect('/register');
-});
-
-// Error handling
-app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).json({ error: 'Something went wrong!' });
-});
-
-// 404 handler
-app.use('*', (req, res) => {
-  res.status(404).json({ error: 'Route not found' });
 });
 
 // Iniciar servidor
 app.listen(PORT, () => {
-  console.log(`🚀 AI Pixel Tracker API running on port ${PORT}`);
-  console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`👥 Users: ${users.length}`);
-  console.log(`📊 Events: ${trackingEvents.length}`);
+  console.log(\`🚀 AI Pixel Tracker funcionando en puerto \${PORT}\`);
+  console.log(\`📊 Dashboard disponible en: http://localhost:\${PORT}/dashboard\`);
+  console.log(\`🤖 SDK disponible en: http://localhost:\${PORT}/ai-pixel-tracker.js\`);
 });
 
 module.exports = app;
