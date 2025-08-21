@@ -247,15 +247,34 @@ app.get('/api/stats/:userId', async (req, res) => {
   }
 });
 
-// Beta signup endpoint
+// Beta signup endpoint - versión mejorada
 app.post('/api/beta-signup', async (req, res) => {
   try {
-    const { email, website, pageviews, language } = req.body;
+    console.log('Beta signup request body:', req.body); // Para debugging
     
-    if (!email || !website) {
+    const { email, website, websiteUrl, pageviews, language } = req.body;
+    
+    // Aceptar tanto 'website' como 'websiteUrl'
+    const siteUrl = website || websiteUrl;
+    
+    if (!email || !siteUrl) {
       return res.status(400).json({ 
         success: false, 
-        message: 'Email and website are required' 
+        message: 'Email and website are required',
+        received: {
+          email: !!email,
+          website: !!siteUrl,
+          body: req.body
+        }
+      });
+    }
+
+    // Validar formato de email básico
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Valid email address required' 
       });
     }
 
@@ -272,7 +291,7 @@ app.post('/api/beta-signup', async (req, res) => {
     }
 
     // Contar beta users actuales
-    const betaCount = await db.collection('beta_signups').countDocuments();
+    const betaCount = await db.collection('beta_signups').countDocuments({ status: 'beta' });
     
     if (betaCount >= 50) {
       return res.json({
@@ -285,26 +304,30 @@ app.post('/api/beta-signup', async (req, res) => {
     // Crear beta user
     const betaUser = {
       email: email.toLowerCase(),
-      website,
+      website: siteUrl,
       pageviews: pageviews || '',
       language: language || 'en',
       status: 'beta',
-      signupDate: new Date()
+      signupDate: new Date(),
+      userAgent: req.headers['user-agent'] || '',
+      ip: req.ip || req.connection.remoteAddress
     };
 
-    await db.collection('beta_signups').insertOne(betaUser);
+    const result = await db.collection('beta_signups').insertOne(betaUser);
     
     res.json({
       success: true,
       message: 'Beta access granted!',
-      status: 'beta'
+      status: 'beta',
+      betaId: result.insertedId
     });
     
   } catch (error) {
     console.error('Error in beta signup:', error);
     res.status(500).json({ 
       success: false, 
-      message: 'Internal server error' 
+      message: 'Internal server error',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
