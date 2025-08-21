@@ -8,7 +8,10 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: ['https://aipixeltracker.lat', 'http://localhost:3000'],
+  credentials: true
+}));
 app.use(express.json());
 app.use(express.static('public'));
 
@@ -240,6 +243,68 @@ app.get('/api/stats/:userId', async (req, res) => {
     res.status(500).json({ 
       success: false, 
       message: 'Error interno del servidor' 
+    });
+  }
+});
+
+// Beta signup endpoint
+app.post('/api/beta-signup', async (req, res) => {
+  try {
+    const { email, website, pageviews, language } = req.body;
+    
+    if (!email || !website) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Email and website are required' 
+      });
+    }
+
+    // Verificar si ya existe
+    const existingUser = await db.collection('beta_signups').findOne({ 
+      email: email.toLowerCase() 
+    });
+    
+    if (existingUser) {
+      return res.status(409).json({ 
+        success: false, 
+        message: 'Email already registered for beta' 
+      });
+    }
+
+    // Contar beta users actuales
+    const betaCount = await db.collection('beta_signups').countDocuments();
+    
+    if (betaCount >= 50) {
+      return res.json({
+        success: false,
+        message: 'Beta spots are full. Join our waitlist!',
+        status: 'waitlist_full'
+      });
+    }
+
+    // Crear beta user
+    const betaUser = {
+      email: email.toLowerCase(),
+      website,
+      pageviews: pageviews || '',
+      language: language || 'en',
+      status: 'beta',
+      signupDate: new Date()
+    };
+
+    await db.collection('beta_signups').insertOne(betaUser);
+    
+    res.json({
+      success: true,
+      message: 'Beta access granted!',
+      status: 'beta'
+    });
+    
+  } catch (error) {
+    console.error('Error in beta signup:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Internal server error' 
     });
   }
 });
