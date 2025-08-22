@@ -9,7 +9,7 @@ const PORT = process.env.PORT || 3000;
 
 // Middleware
 app.use(cors({
-  origin: ['https://aipixeltracker.lat', 'http://localhost:3000'],
+  origin: ['https://aipixeltracker.lat', 'https://www.aipixeltracker.lat', 'http://localhost:3000'],
   credentials: true
 }));
 app.use(express.json());
